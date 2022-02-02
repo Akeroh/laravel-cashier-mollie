@@ -2,6 +2,7 @@
 
 namespace Laravel\Cashier\Order;
 
+use App\Models\Tenant\Module;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as BaseCollection;
 
@@ -113,6 +114,9 @@ class OrderItemCollection extends Collection
     {
         /** @var BaseCollection $items */
         $items = $this->flatMap(function (OrderItem $item) {
+            $item->owner->run(function() {
+                $_SESSION['temp_modules'] = Module::where('active', true)->get();
+            });
             return $item->preprocess();
         });
 
