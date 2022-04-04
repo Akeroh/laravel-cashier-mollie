@@ -3,11 +3,13 @@
 namespace Laravel\Cashier\Tests;
 
 use Illuminate\Support\Facades\Event;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\SubscriptionPlanSwapped;
 use Laravel\Cashier\Mollie\Contracts\CreateMolliePayment;
 use Laravel\Cashier\Mollie\Contracts\GetMollieMandate;
 use Laravel\Cashier\Mollie\Contracts\GetMollieMethodMinimumAmount;
 use Laravel\Cashier\Mollie\GetMollieCustomer;
+use Laravel\Cashier\Order\Order;
 use Laravel\Cashier\Order\OrderItem;
 use Laravel\Cashier\Subscription;
 use Mollie\Api\MollieApiClient;
@@ -39,9 +41,19 @@ class SwapSubscriptionPlanTest extends BaseTestCase
 
         $user = $this->getUserWithZeroBalance();
         $subscription = $this->getSubscriptionForUser($user);
-        $original_order_item = $subscription->scheduleNewOrderItemAt($now->copy()->subWeeks(2));
+        $alreadyPaidOrderItem = factory(Cashier::$orderItemModel)->create([
+            'owner_id' => $user->id,
+            'order_id' => 1,
+            'unit_price' => 1000,
+            'tax_percentage' => 10,
+        ]);
+        Order::createProcessedFromItem($alreadyPaidOrderItem, [
+            'id' => 1,
+            'owner_id' => $user->id,
+        ]);
+        $originally_scheduled_order_item = $subscription->scheduleNewOrderItemAt($now->copy()->subWeeks(2));
 
-        $this->assertTrue($subscription->scheduledOrderItem->is($original_order_item));
+        $this->assertTrue($subscription->scheduledOrderItem->is($originally_scheduled_order_item));
 
         // Swap to new plan
         $subscription = $subscription->swap('weekly-20-1')->fresh();
@@ -52,19 +64,19 @@ class SwapSubscriptionPlanTest extends BaseTestCase
         $this->assertCarbon($now->copy()->addWeek(), $subscription->cycle_ends_at);
 
         // Assert that the original scheduled OrderItem has been removed
-        $this->assertFalse(OrderItem::whereId($original_order_item->id)->exists());
+        $this->assertFalse(Cashier::$orderItemModel::whereId($originally_scheduled_order_item->id)->exists());
 
         // Assert that another OrderItem was scheduled for the new subscription plan
-        $new_order_item = $subscription->scheduledOrderItem;
-        $this->assertFalse($new_order_item->is($original_order_item));
-        $this->assertCarbon($now->copy()->addWeek(), $new_order_item->process_at, 1);
-        $this->assertMoneyEURCents(2200, $new_order_item->getTotal());
-        $this->assertMoneyEURCents(200, $new_order_item->getTax());
-        $this->assertEquals('Twice as expensive monthly subscription', $new_order_item->description);
-        $this->assertFalse($new_order_item->isProcessed());
+        $newly_scheduled_order_item = $subscription->scheduledOrderItem;
+        $this->assertFalse($newly_scheduled_order_item->is($originally_scheduled_order_item));
+        $this->assertCarbon($now->copy()->addWeek(), $newly_scheduled_order_item->process_at, 1);
+        $this->assertMoneyEURCents(2200, $newly_scheduled_order_item->getTotal());
+        $this->assertMoneyEURCents(200, $newly_scheduled_order_item->getTax());
+        $this->assertEquals('Twice as expensive monthly subscription', $newly_scheduled_order_item->description);
+        $this->assertFalse($newly_scheduled_order_item->isProcessed());
 
         // Assert that the amount "overpaid" for the old plan results in an additional OrderItem with negative total_amount
-        $credit_item = OrderItem::where('unit_price', '<', 0)->first();
+        $credit_item = Cashier::$orderItemModel::where('unit_price', '<', 0)->first();
         $this->assertNotNull($credit_item);
         $this->assertCarbon($now->copy(), $credit_item->process_at, 1);
         $this->assertMoneyEURCents(-603, $credit_item->getTotal());
@@ -73,9 +85,10 @@ class SwapSubscriptionPlanTest extends BaseTestCase
         $this->assertTrue($credit_item->isProcessed());
 
         // Assert that one OrderItem has already been processed
-        $processed_item = OrderItem::whereNotIn('id', [
-            $new_order_item->id,
-            $original_order_item->id,
+        $processed_item = Cashier::$orderItemModel::whereNotIn('id', [
+            $alreadyPaidOrderItem->id,
+            $newly_scheduled_order_item->id,
+            $originally_scheduled_order_item->id,
             $credit_item->id,
         ])->first();
         $this->assertNotNull($processed_item);
@@ -89,7 +102,7 @@ class SwapSubscriptionPlanTest extends BaseTestCase
             return $subscription->is($event->subscription);
         });
 
-        $new_order_item->process();
+        $newly_scheduled_order_item->process();
 
         $subscription = $subscription->fresh();
         $this->assertCarbon($now->copy()->addWeek(), $subscription->cycle_started_at);
@@ -107,7 +120,7 @@ class SwapSubscriptionPlanTest extends BaseTestCase
     public function swappingACancelledSubscriptionResumesIt()
     {
         $subscription = $this->getUser()->subscriptions()->save(
-            factory(Subscription::class)->make([
+            factory(Cashier::$subscriptionModel)->make([
                 'ends_at' => now()->addWeek(),
                 'plan' => 'monthly-20-1',
             ])
@@ -144,7 +157,7 @@ class SwapSubscriptionPlanTest extends BaseTestCase
 
         // Assert that the original scheduled OrderItem has been removed
         // And assert that another OrderItem was scheduled for the new subscription plan
-        $this->assertFalse(OrderItem::whereId($original_order_item->id)->exists());
+        $this->assertFalse(Cashier::$orderItemModel::whereId($original_order_item->id)->exists());
         $new_order_item = $subscription->scheduledOrderItem;
         $this->assertFalse($new_order_item->is($original_order_item));
         $this->assertCarbon($cycle_should_end_at, $new_order_item->process_at, 1); // based on previous plan's cycle
@@ -195,7 +208,7 @@ class SwapSubscriptionPlanTest extends BaseTestCase
      */
     protected function getSubscriptionForUser($user)
     {
-        return $user->subscriptions()->save(factory(Subscription::class)->make([
+        return $user->subscriptions()->save(factory(Cashier::$subscriptionModel)->make([
             "name" => "dummy name",
             "plan" => "monthly-10-1",
             "cycle_started_at" => now()->subWeeks(2),

@@ -5,8 +5,10 @@ namespace Laravel\Cashier\Order;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Order\Contracts\InteractsWithOrderItems;
 use Laravel\Cashier\Order\Contracts\InvoicableItem;
+use Laravel\Cashier\Refunds\Contracts\IsRefundable;
 use Laravel\Cashier\Refunds\RefundItem;
 use Laravel\Cashier\Traits\FormatsAmount;
 use Laravel\Cashier\Traits\HasOwner;
@@ -20,6 +22,9 @@ use Laravel\Cashier\Traits\HasOwner;
  * @property float tax_percentage
  * @property string orderable_type
  * @property mixed orderable_id
+ * @property mixed $id
+ * @property Order $order
+ * @property mixed $order_id
  * @method static create(array $array)
  * @method static make(array $array)
  */
@@ -70,7 +75,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function order()
     {
-        return $this->belongsTo(Order::class);
+        return $this->belongsTo(Cashier::$orderModel);
     }
 
     /**
@@ -92,7 +97,9 @@ class OrderItem extends Model implements InvoicableItem
     {
         $beforeTax = $this->getSubtotal();
 
-        return (int) $beforeTax->multiply($this->tax_percentage / 100)->getAmount();
+        return (int) $beforeTax->multiply(
+            sprintf('%.6F', $this->tax_percentage / 100)
+        )->getAmount();
     }
 
     /**
@@ -329,7 +336,10 @@ class OrderItem extends Model implements InvoicableItem
     public function handlePaymentRefunded(RefundItem $refundItem)
     {
         if ($this->orderableIsSet()) {
-            $this->getOrderableClass()::handlePaymentRefunded($refundItem);
+            $orderable = $this->getOrderableClass();
+            if ($orderable instanceof IsRefundable) {
+                $orderable::handlePaymentRefunded($refundItem);
+            }
         }
 
         return $this;
@@ -345,7 +355,10 @@ class OrderItem extends Model implements InvoicableItem
     public function handlePaymentRefundFailed(RefundItem $refundItem)
     {
         if ($this->orderableIsSet()) {
-            $this->getOrderableClass()::handlePaymentRefundFailed($refundItem);
+            $orderable = $this->getOrderableClass();
+            if ($orderable instanceof IsRefundable) {
+                $orderable::handlePaymentRefundFailed($refundItem);
+            }
         }
 
         return $this;

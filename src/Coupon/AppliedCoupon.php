@@ -3,11 +3,13 @@
 namespace Laravel\Cashier\Coupon;
 
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Order\Contracts\InteractsWithOrderItems;
 use Laravel\Cashier\Order\OrderItem;
 
 /**
  * @method static create(array $array)
+ * @property \Laravel\Cashier\Order\OrderItemCollection $orderItems
  */
 class AppliedCoupon extends Model implements InteractsWithOrderItems
 {
@@ -35,7 +37,7 @@ class AppliedCoupon extends Model implements InteractsWithOrderItems
      */
     public function orderItems()
     {
-        return $this->morphMany(OrderItem::class, 'orderable');
+        return $this->morphMany(Cashier::$orderItemModel, 'orderable');
     }
 
     /**

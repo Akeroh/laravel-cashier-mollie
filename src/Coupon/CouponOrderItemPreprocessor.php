@@ -2,6 +2,7 @@
 
 namespace Laravel\Cashier\Coupon;
 
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Order\BaseOrderItemPreprocessor;
 use Laravel\Cashier\Order\OrderItem;
 use Laravel\Cashier\Order\OrderItemCollection;
@@ -35,6 +36,6 @@ class CouponOrderItemPreprocessor extends BaseOrderItemPreprocessor
      */
     protected function getActiveCoupons($modelType, $modelId)
     {
-        return RedeemedCoupon::whereModel($modelType, $modelId)->active()->get();
+        return Cashier::$redeemedCouponModel::whereModel($modelType, $modelId)->active()->get();
     }
 }

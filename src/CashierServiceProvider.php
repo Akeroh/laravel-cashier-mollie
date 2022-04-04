@@ -18,7 +18,7 @@ class CashierServiceProvider extends ServiceProvider
 {
     use RegistersMollieInteractions;
 
-    const PACKAGE_VERSION = '2.0.8';
+    const PACKAGE_VERSION = '2.3.2';
 
     /**
      * Bootstrap the application services.
@@ -122,7 +122,7 @@ class CashierServiceProvider extends ServiceProvider
     protected function publishTranslations(string $tag)
     {
         $this->publishes([
-            __DIR__.'/../resources/lang' => $this->app->basePath('resources/lang/vendor/cashier'),
+            __DIR__.'/../resources/lang' => $this->app->langPath('vendor/cashier'),
         ], $tag);
     }
 

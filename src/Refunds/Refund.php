@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\RefundFailed;
 use Laravel\Cashier\Events\RefundProcessed;
 use Laravel\Cashier\Order\Order;
@@ -55,25 +56,22 @@ class Refund extends Model
      */
     public function scopeWhereUnprocessed(Builder $query)
     {
-        return $query->whereIn('mollie_refund_status', [
-            RefundStatus::STATUS_REFUNDED,
-            RefundStatus::STATUS_FAILED,
-        ]);
+        return $query->where('mollie_refund_status', RefundStatus::STATUS_PENDING);
     }
 
     public function items(): HasMany
     {
-        return $this->hasMany(RefundItem::class);
+        return $this->hasMany(Cashier::$refundItemModel);
     }
 
     public function originalOrder(): HasOne
     {
-        return $this->hasOne(Order::class, 'id', 'original_order_id');
+        return $this->hasOne(Cashier::$orderModel, 'id', 'original_order_id');
     }
 
     public function order(): HasOne
     {
-        return $this->hasOne(Order::class, 'id', 'order_id');
+        return $this->hasOne(Cashier::$orderModel, 'id', 'order_id');
     }
 
     public function handleProcessed(): self
@@ -82,7 +80,7 @@ class Refund extends Model
 
         DB::transaction(function () use ($refundItems) {
             $orderItems = $refundItems->toNewOrderItemCollection()->save();
-            $order = Order::createProcessedFromItems($orderItems);
+            $order = Cashier::$orderModel::createProcessedFromItems($orderItems);
 
             $this->order_id = $order->id;
             $this->mollie_refund_status = RefundStatus::STATUS_REFUNDED;

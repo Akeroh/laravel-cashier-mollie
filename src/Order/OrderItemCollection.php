@@ -5,6 +5,7 @@ namespace Laravel\Cashier\Order;
 use App\Models\Tenant\Module;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as BaseCollection;
+use Money\Money;
 
 class OrderItemCollection extends Collection
 {
@@ -155,5 +156,10 @@ class OrderItemCollection extends Collection
     public function taxPercentages()
     {
         return collect(array_values($this->pluck('tax_percentage')->unique()->sort()->all()));
+    }
+
+    public function getTotal(): Money
+    {
+        return money($this->sum('total'), $this->getCurrency());
     }
 }
