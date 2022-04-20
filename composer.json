@@ -17,6 +17,12 @@
     "license": "MIT",
     "authors": [
         {
+            "name": "Akeroh Software",
+            "email": "info@akeroh.nl",
+            "homepage": "https://akeroh.nl",
+            "role": "Developer"
+        },
+        {
             "name": "Mollie.com",
             "email": "support@mollie.com",
             "homepage": "https://www.mollie.com",
