@@ -4,7 +4,7 @@ namespace Laravel\Cashier\Order\Contracts;
 
 use Mollie\Api\Resources\Mandate;
 
-interface MinimumPayment
+interface MaximumPayment
 {
     /**
      * @param  \Mollie\Api\Resources\Mandate  $mandate

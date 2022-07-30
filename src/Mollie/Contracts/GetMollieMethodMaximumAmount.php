@@ -6,7 +6,7 @@ namespace Laravel\Cashier\Mollie\Contracts;
 
 use Money\Money;
 
-interface GetMollieMethodMinimumAmount
+interface GetMollieMethodMaximumAmount
 {
     public function execute(string $method, string $currency): Money;
 }

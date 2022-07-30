@@ -15,9 +15,11 @@ use Laravel\Cashier\Events\OrderPaymentFailed;
 use Laravel\Cashier\Events\OrderPaymentFailedDueToInvalidMandate;
 use Laravel\Cashier\Events\OrderPaymentPaid;
 use Laravel\Cashier\Events\OrderProcessed;
+use Laravel\Cashier\Exceptions\AmountExceedsMolliePaymentMethodLimit;
 use Laravel\Cashier\Exceptions\InvalidMandateException;
 use Laravel\Cashier\Exceptions\OrderRetryRequiresStatusFailedException;
 use Laravel\Cashier\MandatedPayment\MandatedPaymentBuilder;
+use Laravel\Cashier\Order\Contracts\MaximumPayment;
 use Laravel\Cashier\Order\Contracts\MinimumPayment;
 use Laravel\Cashier\Refunds\RefundBuilder;
 use Laravel\Cashier\Traits\HasOwner;
@@ -45,6 +47,7 @@ use Mollie\Api\Types\PaymentStatus;
  * @property int amount_charged_back
  * @property \Laravel\Cashier\Order\OrderItemCollection items
  * @property \Laravel\Cashier\Refunds\RefundCollection refunds
+ *
  * @method static create(array $data)
  */
 class Order extends Model
@@ -67,6 +70,7 @@ class Order extends Model
         'credit_used' => 'int',
         'total_due' => 'int',
     ];
+
     /**
      * The attributes that should be mutated to dates.
      *
@@ -91,9 +95,9 @@ class Order extends Model
     /**
      * Creates an order from a collection of OrderItems
      *
-     * @param \Laravel\Cashier\Order\OrderItemCollection $items
-     * @param array $overrides
-     * @param bool $process_items
+     * @param  \Laravel\Cashier\Order\OrderItemCollection  $items
+     * @param  array  $overrides
+     * @param  bool  $process_items
      * @return Order
      */
     public static function createFromItems(OrderItemCollection $items, $overrides = [], $process_items = true)
@@ -144,8 +148,8 @@ class Order extends Model
     /**
      * Creates a processed order from a collection of OrderItems
      *
-     * @param \Laravel\Cashier\Order\OrderItemCollection $items
-     * @param array $overrides
+     * @param  \Laravel\Cashier\Order\OrderItemCollection  $items
+     * @param  array  $overrides
      * @return Order
      */
     public static function createProcessedFromItems(OrderItemCollection $items, $overrides = [])
@@ -165,7 +169,7 @@ class Order extends Model
 
     /**
      * @param $item
-     * @param array $overrides
+     * @param  array  $overrides
      * @return \Laravel\Cashier\Order\Order
      */
     public static function createProcessedFromItem($item, $overrides = [])
@@ -177,6 +181,7 @@ class Order extends Model
      * Processes the Order into Credit, Refund or Mollie Payment - whichever is appropriate.
      *
      * @return $this
+     *
      * @throws \Laravel\Cashier\Exceptions\InvalidMandateException
      */
     public function processPayment()
@@ -198,11 +203,21 @@ class Order extends Model
 
             try {
                 $minimumPaymentAmount = $this->ensureValidMandateAndMinimumPaymentAmountWhenTotalDuePositive();
+                $maximumPaymentAmount = $this->ensureValidMandateAndMaximumPaymentAmountWhenTotalDuePositive();
             } catch (InvalidMandateException $e) {
                 return $this->handlePaymentFailedDueToInvalidMandate();
             }
 
             $totalDue = money($this->total_due, $this->currency);
+
+            if ($totalDue->greaterThan($maximumPaymentAmount)) {
+                $this->items->each(function (OrderItem $item) {
+                    $item->update(['order_id' => null]);
+                });
+                $this->delete();
+
+                throw new AmountExceedsMolliePaymentMethodLimit();
+            }
 
             switch (true) {
                 case $totalDue->isZero():
@@ -229,7 +244,7 @@ class Order extends Model
                     // Create Mollie payment
                     $payment = (new MandatedPaymentBuilder(
                         $owner,
-                        "Order " . $this->number,
+                        'Order '.$this->number,
                         $totalDue,
                         url(config('cashier.webhook_url')),
                         [
@@ -291,8 +306,8 @@ class Order extends Model
     /**
      * Get the invoice for this Order.
      *
-     * @param null $id
-     * @param null $date
+     * @param  null  $id
+     * @param  null  $date
      * @return \Laravel\Cashier\Order\Invoice
      */
     public function invoice($id = null, $date = null)
@@ -340,7 +355,7 @@ class Order extends Model
      * Scope the query to only include processed orders.
      *
      * @param $query
-     * @param bool $processed
+     * @param  bool  $processed
      * @return Builder
      */
     public function scopeProcessed($query, $processed = true)
@@ -356,7 +371,7 @@ class Order extends Model
      * Scope the query to only include unprocessed orders.
      *
      * @param $query
-     * @param bool $unprocessed
+     * @param  bool  $unprocessed
      * @return Builder
      */
     public function scopeUnprocessed($query, $unprocessed = true)
@@ -368,7 +383,7 @@ class Order extends Model
      * Scope the query to only include orders with a specific Mollie payment status.
      *
      * @param $query
-     * @param string $status
+     * @param  string  $status
      * @return Builder
      */
     public function scopePaymentStatus($query, $status)
@@ -405,6 +420,7 @@ class Order extends Model
      *
      * @param $id
      * @return static
+     *
      * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
      */
     public static function findByMolliePaymentIdOrFail($id)
@@ -420,7 +436,7 @@ class Order extends Model
      */
     public function creditApplied()
     {
-        return $this->credit_used <> 0;
+        return $this->credit_used != 0;
     }
 
     /**
@@ -428,7 +444,7 @@ class Order extends Model
      * Restores any credit used to the customer's balance and resets the credits applied to the Order.
      * Invokes handlePaymentFailed() on each related OrderItem.
      *
-     * @param \Mollie\Api\Resources\Payment $molliePayment
+     * @param  \Mollie\Api\Resources\Payment  $molliePayment
      * @return $this
      */
     public function handlePaymentFailed(MolliePayment $molliePayment)
@@ -501,7 +517,7 @@ class Order extends Model
      * Handles a paid payment for this order.
      * Invokes handlePaymentPaid() on each related OrderItem.
      *
-     * @param \Mollie\Api\Resources\Payment $molliePayment
+     * @param  \Mollie\Api\Resources\Payment  $molliePayment
      * @return $this
      */
     public function handlePaymentPaid(MolliePayment $molliePayment)
@@ -648,7 +664,8 @@ class Order extends Model
     }
 
     /**
-     * @param \Mollie\Api\Resources\Mandate $mandate
+     * @param  \Mollie\Api\Resources\Mandate  $mandate
+     *
      * @throws \Laravel\Cashier\Exceptions\InvalidMandateException
      */
     protected function guardMandate(?Mandate $mandate)
@@ -668,6 +685,7 @@ class Order extends Model
 
     /**
      * @return \Money\Money
+     *
      * @throws InvalidMandateException
      */
     private function ensureValidMandateAndMinimumPaymentAmountWhenTotalDuePositive(): \Money\Money
@@ -682,6 +700,25 @@ class Order extends Model
         }
 
         return $minimumPaymentAmount;
+    }
+
+    /**
+     * @return \Money\Money
+     *
+     * @throws InvalidMandateException
+     */
+    private function ensureValidMandateAndMaximumPaymentAmountWhenTotalDuePositive(): \Money\Money
+    {
+        if ((int) $this->getTotalDue()->getAmount() > 0) {
+            $mandate = $this->owner->mollieMandate();
+            $this->guardMandate($mandate);
+
+            $maximumPaymentAmount = app(MaximumPayment::class)::forMollieMandate($mandate, $this->getCurrency());
+        } else {
+            $maximumPaymentAmount = money(0, $this->getCurrency());
+        }
+
+        return $maximumPaymentAmount;
     }
 
     /**
