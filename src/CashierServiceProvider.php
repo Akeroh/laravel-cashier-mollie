@@ -9,6 +9,7 @@ use Laravel\Cashier\Console\Commands\CashierUpdate;
 use Laravel\Cashier\Coupon\ConfigCouponRepository;
 use Laravel\Cashier\Coupon\Contracts\CouponRepository;
 use Laravel\Cashier\Mollie\RegistersMollieInteractions;
+use Laravel\Cashier\Order\Contracts\MaximumPayment as MaximumPaymentContract;
 use Laravel\Cashier\Order\Contracts\MinimumPayment as MinimumPaymentContract;
 use Laravel\Cashier\Plan\ConfigPlanRepository;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
@@ -18,7 +19,7 @@ class CashierServiceProvider extends ServiceProvider
 {
     use RegistersMollieInteractions;
 
-    const PACKAGE_VERSION = '2.3.2';
+    const PACKAGE_VERSION = '2.4.2';
 
     /**
      * Bootstrap the application services.
@@ -34,7 +35,7 @@ class CashierServiceProvider extends ServiceProvider
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'cashier');
         $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'cashier');
 
-        mollie()->addVersionString('MollieLaravelCashier/' . self::PACKAGE_VERSION);
+        mollie()->addVersionString('MollieLaravelCashier/'.self::PACKAGE_VERSION);
 
         if ($this->app->runningInConsole()) {
             $this->publishMigrations('cashier-migrations');
@@ -63,6 +64,7 @@ class CashierServiceProvider extends ServiceProvider
             );
         });
         $this->app->bind(MinimumPaymentContract::class, MinimumPayment::class);
+        $this->app->bind(MaximumPaymentContract::class, MaximumPayment::class);
 
         $this->commands([
             CashierInstall::class,

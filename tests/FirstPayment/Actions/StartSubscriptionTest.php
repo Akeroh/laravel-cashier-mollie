@@ -339,7 +339,6 @@ class StartSubscriptionTest extends BaseTestCase
         $item = $items->first();
         $user = $user->fresh();
 
-
         $this->assertTrue($user->subscribed('default'));
         $this->assertTrue($user->onTrial());
         $this->assertInstanceOf(OrderItemCollection::class, $items);
@@ -373,7 +372,6 @@ class StartSubscriptionTest extends BaseTestCase
         $this->withMockedGetMollieCustomer();
         $this->withMockedGetMollieMandate();
         $user = $this->getMandatedUser();
-
 
         $this->assertFalse($user->subscribed('default'));
 
@@ -664,7 +662,8 @@ class StartSubscriptionTest extends BaseTestCase
     /**
      * Check if the action can be built using the payload, and then can return the same payload.
      *
-     * @param array $overrides
+     * @param  array  $overrides
+     *
      * @throws \Exception
      */
     protected function assertFromPayloadToPayload($overrides = [])
@@ -692,7 +691,7 @@ class StartSubscriptionTest extends BaseTestCase
         $this->assertEquals($payload, $result);
     }
 
-    protected function withMockedGetMollieCustomer($customerId = 'cst_unique_customer_id', $times = 1): void
+    protected function withMockedGetMollieCustomer($customerId = 'cst_unique_customer_id', $times = 2): void
     {
         $this->mock(GetMollieCustomer::class, function ($mock) use ($customerId, $times) {
             $customer = new Customer(new MollieApiClient);
@@ -705,7 +704,7 @@ class StartSubscriptionTest extends BaseTestCase
     protected function withMockedGetMollieMandate($attributes = [[
         'mandateId' => 'mdt_unique_mandate_id',
         'customerId' => 'cst_unique_customer_id',
-    ]], $times = 1): void
+    ]], $times = 2): void
     {
         $this->mock(GetMollieMandate::class, function ($mock) use ($times, $attributes) {
             foreach ($attributes as $data) {

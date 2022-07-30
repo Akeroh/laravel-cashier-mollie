@@ -5,12 +5,15 @@ namespace Laravel\Cashier\Order;
 use App\Models\Tenant\Module;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as BaseCollection;
+use Laravel\Cashier\Cashier;
+use LogicException;
 use Money\Money;
 
 class OrderItemCollection extends Collection
 {
     /**
      * Get a collection of distinct currencies in this collection.
+     *
      * @return \Illuminate\Support\Collection
      */
     public function currencies()
@@ -26,7 +29,7 @@ class OrderItemCollection extends Collection
     public function owners()
     {
         return $this->unique(function ($item) {
-            return $item->owner_type . $item->owner_id;
+            return $item->owner_type.$item->owner_id;
         })->map(function ($item) {
             return $item->owner;
         });
@@ -35,7 +38,7 @@ class OrderItemCollection extends Collection
     /**
      * Filter this collection by owner.
      *
-     * @param \Illuminate\Database\Eloquent\Model $owner
+     * @param  \Illuminate\Database\Eloquent\Model  $owner
      * @return \Laravel\Cashier\Order\OrderItemCollection
      */
     public function whereOwner($owner)
@@ -54,9 +57,9 @@ class OrderItemCollection extends Collection
     public function chunkByOwner()
     {
         return $this->owners()->sortBy(function ($owner) {
-            return $owner->getMorphClass() . '_' . $owner->getKey();
+            return $owner->getMorphClass().'_'.$owner->getKey();
         })->mapWithKeys(function ($owner) {
-            $key = $owner->getMorphClass() . '_' . $owner->getKey();
+            $key = $owner->getMorphClass().'_'.$owner->getKey();
 
             return [$key => $this->whereOwner($owner)];
         });
@@ -127,7 +130,7 @@ class OrderItemCollection extends Collection
     /**
      * Create an OrderItemCollection from a basic Collection.
      *
-     * @param \Illuminate\Support\Collection $collection
+     * @param  \Illuminate\Support\Collection  $collection
      * @return \Laravel\Cashier\Order\OrderItemCollection
      */
     public static function fromBaseCollection(BaseCollection $collection)
@@ -151,6 +154,7 @@ class OrderItemCollection extends Collection
 
     /**
      * Get a collection of distinct tax percentages in this collection.
+     *
      * @return \Illuminate\Support\Collection
      */
     public function taxPercentages()
@@ -158,8 +162,34 @@ class OrderItemCollection extends Collection
         return collect(array_values($this->pluck('tax_percentage')->unique()->sort()->all()));
     }
 
+    /**
+     * @return \Money\Money
+     *
+     * @throws \LogicException
+     */
     public function getTotal(): Money
     {
-        return money($this->sum('total'), $this->getCurrency());
+        if (count($this->currencies()) > 1) {
+            throw new LogicException('Calculating the total requires items to be of the same currency.');
+        }
+
+        return money($this->sum('total'), $this->currency());
+    }
+
+    public function currency(): string
+    {
+        $currencies = $this->currencies();
+
+        if (count($currencies) > 1) {
+            throw new LogicException(
+                'Unable to retrieve a single currency as this collection contains multiple currencies.'
+            );
+        }
+
+        if (empty($currencies)) {
+            return strtoupper(Cashier::usesCurrency());
+        }
+
+        return strtoupper($currencies[0]);
     }
 }

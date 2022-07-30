@@ -8,8 +8,8 @@ use Laravel\Cashier\Coupon\AppliedCoupon as CashierAppliedCoupon;
 use Laravel\Cashier\Coupon\RedeemedCoupon as CashierRedeemedCoupon;
 use Laravel\Cashier\Credit\Credit as CashierCredit;
 use Laravel\Cashier\Mollie\Contracts\CreateMolliePayment;
-
 use Laravel\Cashier\Mollie\Contracts\GetMollieMandate;
+use Laravel\Cashier\Mollie\Contracts\GetMollieMethodMaximumAmount;
 use Laravel\Cashier\Mollie\Contracts\GetMollieMethodMinimumAmount;
 use Laravel\Cashier\Mollie\GetMollieCustomer;
 use Laravel\Cashier\Order\Order as CashierOrder;
@@ -18,7 +18,6 @@ use Laravel\Cashier\Payment as CashierPayment;
 use Laravel\Cashier\Refunds\Refund as CashierRefund;
 use Laravel\Cashier\Refunds\RefundItem as CashierRefundItem;
 use Laravel\Cashier\Subscription as CashierSubscription;
-
 use Laravel\Cashier\Tests\Fixtures\AppliedCoupon as FixtureAppliedCoupon;
 use Laravel\Cashier\Tests\Fixtures\Credit as FixtureCredit;
 use Laravel\Cashier\Tests\Fixtures\Order as FixtureOrder;
@@ -29,7 +28,6 @@ use Laravel\Cashier\Tests\Fixtures\Refund as FixtureRefund;
 use Laravel\Cashier\Tests\Fixtures\RefundItem as FixtureRefundItem;
 use Laravel\Cashier\Tests\Fixtures\Subscription as FixtureSubscription;
 use Laravel\Cashier\Tests\Fixtures\User;
-
 use Mollie\Api\MollieApiClient;
 use Mollie\Api\Resources\Customer;
 use Mollie\Api\Resources\Mandate;
@@ -38,7 +36,7 @@ use Mollie\Api\Resources\Payment;
 class CashierTest extends BaseTestCase
 {
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     protected function setUp(): void
     {
@@ -49,7 +47,7 @@ class CashierTest extends BaseTestCase
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     protected function tearDown(): void
     {
@@ -102,6 +100,7 @@ class CashierTest extends BaseTestCase
         $this->withMockedGetMollieCustomer();
         $this->withMockedGetMollieMandate();
         $this->withMockedGetMollieMethodMinimumAmount();
+        $this->withMockedGetMollieMethodMaximumAmount();
         $this->withMockedCreateMolliePayment();
 
         $user = $this->getMandatedUser(true, [
@@ -140,6 +139,7 @@ class CashierTest extends BaseTestCase
             ],
         ]);
         $this->withMockedGetMollieMethodMinimumAmount(2);
+        $this->withMockedGetMollieMethodMaximumAmount(2);
         $this->withMockedCreateMolliePayment(2);
 
         $user1 = $this->getMandatedUser(true, [
@@ -207,12 +207,13 @@ class CashierTest extends BaseTestCase
             'mollie_mandate_id' => 'mdt_unique_mandate_id',
         ]);
 
-        $this->withMockedGetMollieCustomer(['cst_unique_customer_id'], 4);
+        $this->withMockedGetMollieCustomer(['cst_unique_customer_id'], 7);
         $this->withMockedGetMollieMandate([[
             'mandateId' => 'mdt_unique_mandate_id',
             'customerId' => 'cst_unique_customer_id',
-        ]], 4);
+        ]], 7);
         $this->withMockedGetMollieMethodMinimumAmount(2);
+        $this->withMockedGetMollieMethodMaximumAmount(2);
         $this->withMockedCreateMolliePayment(2);
 
         $subscription = $user->newSubscription('default', 'monthly-20-1')->create();
@@ -259,6 +260,46 @@ class CashierTest extends BaseTestCase
     }
 
     /** @test */
+    public function canSwapSubscriptionPlanAndReimburseUnusedTime()
+    {
+        $this->withTestNow('2019-01-01');
+        $user = $this->getMandatedUser(true, [
+            'id' => 1,
+            'mollie_customer_id' => 'cst_unique_customer_id',
+            'mollie_mandate_id' => 'mdt_unique_mandate_id',
+        ]);
+
+        $this->withMockedGetMollieCustomer(['cst_unique_customer_id'], 7);
+        $this->withMockedGetMollieMandate([[
+            'mandateId' => 'mdt_unique_mandate_id',
+            'customerId' => 'cst_unique_customer_id',
+        ]], 7);
+        $this->withMockedGetMollieMethodMinimumAmount(2);
+        $this->withMockedCreateMolliePayment(2);
+        $this->withMockedGetMollieMethodMaximumAmount(2);
+        $subscription = $user->newSubscription('default', 'monthly-10-1')->create();
+
+        $this->assertOrderItemCounts($user, 0, 1);
+
+        Cashier::run();
+
+        $subscription = $subscription->fresh();
+        $this->assertEquals(1, $user->orders()->count());
+
+        $this->assertOrderItemCounts($user, 1, 1);
+        $processedOrderItem = $user->orderItems()->processed()->first();
+        $scheduledOrderItem = $subscription->scheduledOrderItem;
+
+        $this->withTestNow(now()->copy()->addMinutes(1));
+        $subscription = $subscription->swap('monthly-20-1');
+
+        $this->assertEquals('monthly-20-1', $subscription->plan);
+        // Swapping results in a new Order being created
+        $this->assertEquals(2, $user->orders()->count());
+        $this->assertEquals(1000, $user->orders()->latest()->first()->total);
+    }
+
+    /** @test */
     public function testFormatAmount()
     {
         $this->assertEquals('1.000,00 €', Cashier::formatAmount(money(100000, 'EUR')));
@@ -266,9 +307,9 @@ class CashierTest extends BaseTestCase
     }
 
     /**
-     * @param \Illuminate\Database\Eloquent\Model $user
-     * @param int $processed
-     * @param int $unprocessed
+     * @param  \Illuminate\Database\Eloquent\Model  $user
+     * @param  int  $processed
+     * @param  int  $unprocessed
      */
     protected function assertOrderItemCounts(Model $user, int $processed, int $unprocessed)
     {
@@ -339,7 +380,7 @@ class CashierTest extends BaseTestCase
         $this->assertEquals('webhook/cashier', Cashier::webhookUrl());
     }
 
-    protected function withMockedGetMollieCustomer($customerIds = ['cst_unique_customer_id'], $times = 1): void
+    protected function withMockedGetMollieCustomer($customerIds = ['cst_unique_customer_id'], $times = 2): void
     {
         $this->mock(GetMollieCustomer::class, function ($mock) use ($customerIds, $times) {
             foreach ($customerIds as $id) {
@@ -355,7 +396,7 @@ class CashierTest extends BaseTestCase
     protected function withMockedGetMollieMandate($attributes = [[
         'mandateId' => 'mdt_unique_mandate_id',
         'customerId' => 'cst_unique_customer_id',
-    ]], $times = 1): void
+    ]], $times = 2): void
     {
         $this->mock(GetMollieMandate::class, function ($mock) use ($times, $attributes) {
             foreach ($attributes as $data) {
@@ -375,6 +416,13 @@ class CashierTest extends BaseTestCase
     {
         $this->mock(GetMollieMethodMinimumAmount::class, function ($mock) use ($times) {
             return $mock->shouldReceive('execute')->with('directdebit', 'EUR')->times($times)->andReturn(money(100, 'EUR'));
+        });
+    }
+
+    protected function withMockedGetMollieMethodMaximumAmount($times = 1): void
+    {
+        $this->mock(GetMollieMethodMaximumAmount::class, function ($mock) use ($times) {
+            return $mock->shouldReceive('execute')->with('directdebit', 'EUR')->times($times)->andReturn(money(30000, 'EUR'));
         });
     }
 

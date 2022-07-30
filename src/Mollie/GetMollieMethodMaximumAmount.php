@@ -6,15 +6,15 @@ namespace Laravel\Cashier\Mollie;
 
 use Money\Money;
 
-class GetMollieMethodMinimumAmount extends BaseMollieInteraction implements Contracts\GetMollieMethodMinimumAmount
+class GetMollieMethodMaximumAmount extends BaseMollieInteraction implements Contracts\GetMollieMethodMaximumAmount
 {
     public function execute(string $method, string $currency): Money
     {
-        $minimumAmount = $this->mollie
+        $maximumAmount = $this->mollie
             ->methods()
             ->get($method, ['currency' => $currency])
-            ->minimumAmount;
+            ->maximumAmount;
 
-        return mollie_object_to_money($minimumAmount);
+        return mollie_object_to_money($maximumAmount);
     }
 }
